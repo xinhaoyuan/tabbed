@@ -112,6 +112,9 @@ static int getfirsttab(void);
 static Bool gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void initfont(const char *fontstr);
 static Bool isprotodel(int c);
+static void togglekeys(const Arg *arg);
+static void grabkey(Window w, int i);
+static void updatekeys(Window w);
 static void keypress(const XEvent *e);
 static void killclient(const Arg *arg);
 static void manage(Window win);
@@ -658,6 +661,43 @@ isprotodel(int c)
 }
 
 void
+togglekeys(const Arg *arg)
+{
+	int i;
+	keysenabled = !keysenabled;
+	for (i = 0; i < nclients; ++i) {
+		updatekeys(clients[i]->win);
+	}
+}
+
+void
+grabkey(Window w, int i)
+{
+	int j;
+	KeyCode code;
+	unsigned int modifiers[] =
+		{ 0, LockMask, numlockmask, numlockmask | LockMask };
+
+	if ((code = XKeysymToKeycode(dpy, keys[i].keysym))) {
+		for (j = 0; j < LENGTH(modifiers); j++) {
+			XGrabKey(dpy, code, keys[i].mod |
+				 modifiers[j], w, True,
+				 GrabModeAsync, GrabModeAsync);
+		}
+	}
+}
+
+void updatekeys(Window w)
+{
+	int i;
+	XUngrabKey(dpy, AnyKey, AnyModifier, w);
+	for (i = 0; i < LENGTH(keys); i++) {
+		grabkey(w, i);
+		if (!keysenabled) break;
+	}
+}
+
+void
 keypress(const XEvent *e)
 {
 	const XKeyEvent *ev = &e->xkey;
@@ -670,6 +710,7 @@ keypress(const XEvent *e)
 		    CLEANMASK(keys[i].mod) == CLEANMASK(ev->state) &&
 		    keys[i].func)
 			keys[i].func(&(keys[i].arg));
+		if (!keysenabled) break;
 	}
 }
 
@@ -696,14 +737,22 @@ killclient(const Arg *arg)
 }
 
 void
+updatesizehints(Client *c) {
+	long supplied_return;
+	if (XGetWMNormalHints(dpy, c->win, c->size_hints, &supplied_return) == 0) {
+		c->size_hints->flags = 0;
+	}
+	else {
+		c->size_hints->flags &= supplied_return;
+	}
+}
+
+void
 manage(Window w)
 {
 	updatenumlockmask();
 	{
-		int i, j, nextpos;
-		unsigned int modifiers[] = { 0, LockMask, numlockmask,
-		                             numlockmask | LockMask };
-		KeyCode code;
+		int nextpos;
 		Client *c;
 		XEvent e;
 
@@ -713,15 +762,7 @@ manage(Window w)
 		             StructureNotifyMask | EnterWindowMask);
 		XSync(dpy, False);
 
-		for (i = 0; i < LENGTH(keys); i++) {
-			if ((code = XKeysymToKeycode(dpy, keys[i].keysym))) {
-				for (j = 0; j < LENGTH(modifiers); j++) {
-					XGrabKey(dpy, code, keys[i].mod |
-					         modifiers[j], w, True,
-					         GrabModeAsync, GrabModeAsync);
-				}
-			}
-		}
+		updatekeys(w);
 
 		c = ecalloc(1, sizeof *c);
 		c->win = w;

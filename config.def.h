@@ -35,9 +35,12 @@ static Bool npisrelative  = False;
         } \
 }
 
+static Bool keysenabled = False;
 #define MODKEY ControlMask
 static Key keys[] = {
 	/* modifier             key        function     argument */
+	/* The first key is always enabled */
+	{ MODKEY|ShiftMask,     XK_q,      togglekeys,  { 0 } },
 	{ MODKEY|ShiftMask,     XK_Return, focusonce,   { 0 } },
 	{ MODKEY|ShiftMask,     XK_Return, spawn,       { 0 } },
 
