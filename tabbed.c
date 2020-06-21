@@ -1321,6 +1321,15 @@ main(int argc, char *argv[])
 	case 's':
 		doinitspawn = False;
 		break;
+	case 'F':
+		font = EARGF(usage());
+		break;
+	case 'M':
+		normfgcolor = EARGF(usage());
+		break;
+	case 'm':
+		normbgcolor = EARGF(usage());
+		break;
 	case 'T':
 		selfgcolor = EARGF(usage());
 		break;
