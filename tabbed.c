@@ -84,6 +84,7 @@ typedef struct {
 	int tabx;
 	Bool urgent;
 	Bool closed;
+	XSizeHints *size_hints;
 } Client;
 
 /* function declarations */
@@ -122,6 +123,11 @@ static void maprequest(const XEvent *e);
 static void move(const Arg *arg);
 static void movetab(const Arg *arg);
 static void propertynotify(const XEvent *e);
+static void updatesizehints(Client *c);
+static void fit(int c);
+static void setgeo(int c, int x, int y, int w, int h);
+static void togglebar(const Arg *arg);
+/* Deprecated. Left for compatibility. */
 static void resize(int c, int w, int h);
 static void rotate(const Arg *arg);
 static void run(void);
@@ -163,7 +169,7 @@ static Bool running = True, nextfocus, doinitspawn = True,
 static Display *dpy;
 static DC dc;
 static Atom wmatom[WMLast];
-static Window root, win;
+static Window root, win, bgwin;
 static Client **clients;
 static int nclients, sel = -1, lastsel = -1;
 static int (*xerrorxlib)(Display *, XErrorEvent *);
@@ -181,6 +187,10 @@ char *argv0;
 void
 buttonpress(const XEvent *e)
 {
+	if (hidebar || (nclients <= 1 && hidebarifalone)) {
+		return;
+	}
+
 	const XButtonPressedEvent *ev = &e->xbutton;
 	int i, fc;
 	Arg arg;
@@ -269,7 +279,7 @@ configurenotify(const XEvent *e)
 		}
 
 		if (sel > -1)
-			resize(sel, ww, wh - bh);
+			fit(sel);
 		XSync(dpy, False);
 	}
 }
@@ -278,18 +288,10 @@ void
 configurerequest(const XEvent *e)
 {
 	const XConfigureRequestEvent *ev = &e->xconfigurerequest;
-	XWindowChanges wc;
 	int c;
 
 	if ((c = getclient(ev->window)) > -1) {
-		wc.x = 0;
-		wc.y = bh;
-		wc.width = ww;
-		wc.height = wh - bh;
-		wc.border_width = 0;
-		wc.sibling = ev->above;
-		wc.stack_mode = ev->detail;
-		XConfigureWindow(dpy, clients[c]->win, ev->value_mask, &wc);
+		fit(c);
 	}
 }
 
@@ -324,22 +326,37 @@ die(const char *errstr, ...)
 }
 
 void
+place_bgwin(Bool withbar) {
+	XWindowChanges wc;
+
+	wc.x = 0;
+	wc.y = withbar ? bh : 0;
+	wc.width = ww;
+	wc.height = withbar ? (wh - bh) : wh;
+
+	XConfigureWindow(dpy, bgwin, CWX | CWY | CWWidth | CWHeight, &wc);
+}
+
+void
 drawbar(void)
 {
 	XftColor *col;
 	int c, cc, fc, width;
 	char *name = NULL;
 
-	if (nclients == 0) {
+	if (nclients == 0 || hidebar || (nclients == 1 && hidebarifalone)) {
+		place_bgwin(False);
 		dc.x = 0;
 		dc.w = ww;
 		XFetchName(dpy, win, &name);
-		drawtext(name ? name : "", dc.norm);
+		drawtext((name && !hidebar && !hidebarifalone) ? name : "", dc.norm);
 		XCopyArea(dpy, dc.drawable, win, dc.gc, 0, 0, ww, bh, 0, 0);
 		XSync(dpy, False);
 
 		return;
 	}
+
+	place_bgwin(True);
 
 	width = ww;
 	cc = ww / tabwidth;
@@ -466,7 +483,7 @@ focus(int c)
 	if (c < 0 || c >= nclients)
 		return;
 
-	resize(c, ww, wh - bh);
+	fit(c);
 	XRaiseWindow(dpy, clients[c]->win);
 	XSetInputFocus(dpy, clients[c]->win, RevertToParent, CurrentTime);
 	sendxembed(c, XEMBED_FOCUS_IN, XEMBED_FOCUS_CURRENT, 0, 0);
@@ -474,6 +491,8 @@ focus(int c)
 	xsettitle(win, clients[c]->name);
 
 	if (sel != c) {
+		if (0 <= sel && sel < nclients)
+			XLowerWindow(dpy, clients[sel]->win);
 		lastsel = sel;
 		sel = c;
 	}
@@ -766,8 +785,13 @@ manage(Window w)
 
 		c = ecalloc(1, sizeof *c);
 		c->win = w;
+		c->size_hints = XAllocSizeHints();
+		updatesizehints(c);
 
 		nclients++;
+		if (nclients == 2 && hidebarifalone) {
+			fit(0);
+		}
 		clients = erealloc(clients, sizeof(Client *) * nclients);
 
 		if(npisrelative) {
@@ -909,6 +933,10 @@ propertynotify(const XEvent *e)
 			}
 		}
 		XFree(wmh);
+	} else if (ev->atom == XA_WM_NORMAL_HINTS &&
+		   (c = getclient(ev->window)) > -1) {
+		updatesizehints(clients[c]);
+		fit(c);
 	} else if (ev->state != PropertyDelete && ev->atom == XA_WM_NAME &&
 	           (c = getclient(ev->window)) > -1) {
 		updatetitle(c);
@@ -918,11 +946,26 @@ propertynotify(const XEvent *e)
 void
 resize(int c, int w, int h)
 {
+	setgeo(c, 0, bh, w, h);
+}
+
+void fit(int c)
+{
+	if (hidebar || (nclients <= 1 && hidebarifalone)) {
+		setgeo(c, 0, 0, ww, wh);
+	} else {
+		setgeo(c, 0, bh, ww, wh - bh);
+	}
+}
+
+void
+setgeo(int c, int x, int y, int w, int h)
+{
 	XConfigureEvent ce;
 	XWindowChanges wc;
 
-	ce.x = 0;
-	ce.y = wc.y = bh;
+	ce.x = wc.x = x;
+	ce.y = wc.y = y;
 	ce.width = wc.width = w;
 	ce.height = wc.height = h;
 	ce.type = ConfigureNotify;
@@ -933,9 +976,45 @@ resize(int c, int w, int h)
 	ce.override_redirect = False;
 	ce.border_width = 0;
 
-	XConfigureWindow(dpy, clients[c]->win, CWY | CWWidth | CWHeight, &wc);
+	if (clients[c]->size_hints->flags & PResizeInc &&
+	    clients[c]->size_hints->width_inc > 0 &&
+	    clients[c]->size_hints->height_inc > 0) {
+		unsigned int dx = w;
+		unsigned int dy = h;
+		if (clients[c]->size_hints->flags & PBaseSize) {
+			dx -= clients[c]->size_hints->base_width;
+			dy -= clients[c]->size_hints->base_height;
+		}
+
+		dx %= clients[c]->size_hints->width_inc;
+		dy %= clients[c]->size_hints->height_inc;
+
+		ce.y = wc.x = wc.x + (dx >> 1);
+		ce.width = wc.width = wc.width - dx;
+		ce.y = wc.y = wc.y + (dy >> 1);
+		ce.height = wc.height = wc.height - dy;
+	}
+
+	XConfigureWindow(dpy, clients[c]->win, CWX | CWY | CWWidth | CWHeight, &wc);
 	XSendEvent(dpy, clients[c]->win, False, StructureNotifyMask,
 	           (XEvent *)&ce);
+}
+
+void togglebar(const Arg *arg)
+{
+	int i;
+
+	if (nclients == 1) {
+		hidebarifalone = !hidebarifalone;
+	}
+	else if (nclients > 1) {
+		hidebar = !hidebar;
+	}
+
+	for (i = 0; i < nclients; ++i) {
+		fit(i);
+	}
+	drawbar();
 }
 
 void
@@ -1083,7 +1162,11 @@ setup(void)
 
 	win = XCreateSimpleWindow(dpy, root, wx, wy, ww, wh, 0,
 	                          dc.norm[ColFG].pixel, dc.norm[ColBG].pixel);
+	bgwin = XCreateSimpleWindow(dpy, win, 0, 0, ww, wh, 0,
+				    dc.norm[ColFG].pixel, dc.norm[ColBG].pixel);
+	XMapRaised(dpy, bgwin);
 	XMapRaised(dpy, win);
+
 	XSelectInput(dpy, win, SubstructureNotifyMask | FocusChangeMask |
 	             ButtonPressMask | ExposureMask | KeyPressMask |
 	             PropertyChangeMask | StructureNotifyMask |
@@ -1179,15 +1262,18 @@ unmanage(int c)
 	if (c == 0) {
 		/* First client. */
 		nclients--;
+		XFree(clients[0]->size_hints);
 		free(clients[0]);
 		memmove(&clients[0], &clients[1], sizeof(Client *) * nclients);
 	} else if (c == nclients - 1) {
 		/* Last client. */
 		nclients--;
+		XFree(clients[c]->size_hints);
 		free(clients[c]);
 		clients = erealloc(clients, sizeof(Client *) * nclients);
 	} else {
 		/* Somewhere inbetween. */
+		XFree(clients[c]->size_hints);
 		free(clients[c]);
 		memmove(&clients[c], &clients[c+1],
 		        sizeof(Client *) * (nclients - (c + 1)));

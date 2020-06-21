@@ -16,6 +16,8 @@ static const char titletrim[]   = "...";
 static const int  tabwidth      = 200;
 static const Bool foreground    = True;
 static       Bool urgentswitch  = False;
+static       Bool hidebar       = False;
+static       Bool hidebarifalone= True;
 
 /*
  * Where to place a new tab when it is opened. When npisrelative is True,
@@ -44,6 +46,7 @@ static Key keys[] = {
 	{ MODKEY|ShiftMask,     XK_Return, focusonce,   { 0 } },
 	{ MODKEY|ShiftMask,     XK_Return, spawn,       { 0 } },
 
+	{ MODKEY|Mod1Mask,      XK_t,      togglebar,   { 0 } },
 	{ MODKEY|ShiftMask,     XK_l,      rotate,      { .i = +1 } },
 	{ MODKEY|ShiftMask,     XK_h,      rotate,      { .i = -1 } },
 	{ MODKEY|ShiftMask,     XK_j,      movetab,     { .i = -1 } },
