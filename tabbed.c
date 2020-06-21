@@ -1,4 +1,4 @@
-/*
+/* -*- mode: c; indent-tabs-mode: t; tab-width: 8; c-basic-offset: 8 -*-
  * See LICENSE file for copyright and license details.
  */
 
