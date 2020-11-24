@@ -250,7 +250,7 @@ clientmessage(const XEvent *e)
 
 	if (ev->message_type == wmatom[WMProtocols] &&
 	    ev->data.l[0] == wmatom[WMDelete]) {
-		if (nclients > 1 && killclientsfirst) {
+		if (nclients >= 1 && killclientsfirst) {
 			killclient(0);
 			return;
 		}
