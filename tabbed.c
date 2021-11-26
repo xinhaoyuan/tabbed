@@ -49,7 +49,7 @@
 
 enum { ColFG, ColBG, ColLast };       /* color */
 enum { WMProtocols, WMDelete, WMName, WMState, WMFullscreen,
-       XEmbed, WMSelectTab, WMLast }; /* default atoms */
+       XEmbed, WMSelectTab, WMIcon, WMLast }; /* default atoms */
 
 typedef union {
 	int i;
@@ -144,6 +144,7 @@ static void updatenumlockmask(void);
 static void updatetitle(int c);
 static int xerror(Display *dpy, XErrorEvent *ee);
 static void xsettitle(Window w, const char *str);
+static void xseticon(void);
 
 /* variables */
 static int screen;
@@ -475,6 +476,7 @@ focus(int c)
 			n += snprintf(&buf[n], sizeof(buf) - n, " %s", cmd[i]);
 
 		xsettitle(win, buf);
+		xseticon();
 		XRaiseWindow(dpy, win);
 
 		return;
@@ -496,6 +498,7 @@ focus(int c)
 		lastsel = sel;
 		sel = c;
 	}
+	xseticon();
 
 	if (clients[c]->urgent && (wmh = XGetWMHints(dpy, clients[c]->win))) {
 		wmh->flags &= ~XUrgencyHint;
@@ -933,6 +936,8 @@ propertynotify(const XEvent *e)
 			}
 		}
 		XFree(wmh);
+		if (c == sel)
+			xseticon();
 	} else if (ev->atom == XA_WM_NORMAL_HINTS &&
 		   (c = getclient(ev->window)) > -1) {
 		updatesizehints(clients[c]);
@@ -940,6 +945,8 @@ propertynotify(const XEvent *e)
 	} else if (ev->state != PropertyDelete && ev->atom == XA_WM_NAME &&
 	           (c = getclient(ev->window)) > -1) {
 		updatetitle(c);
+	} else if (ev->atom == wmatom[WMIcon] && (c = getclient(ev->window)) > -1 && c == sel) {
+		xseticon();
 	}
 }
 
@@ -1115,6 +1122,7 @@ setup(void)
 	wmatom[WMSelectTab] = XInternAtom(dpy, "_TABBED_SELECT_TAB", False);
 	wmatom[WMState] = XInternAtom(dpy, "_NET_WM_STATE", False);
 	wmatom[XEmbed] = XInternAtom(dpy, "_XEMBED", False);
+	wmatom[WMIcon] = XInternAtom(dpy, "_NET_WM_ICON", False);
 
 	/* init appearance */
 	wx = 0;
@@ -1390,6 +1398,45 @@ xsettitle(Window w, const char *str)
 		XSetTextProperty(dpy, w, &xtp, XA_WM_NAME);
 		XFree(xtp.value);
 	}
+}
+
+void
+xseticon(void)
+{
+	Atom ret_type;
+	XWMHints *wmh, *cwmh;
+	int ret_format;
+	unsigned long ret_nitems, ret_nleft;
+	long offset = 0L;
+	unsigned char *data = NULL;
+
+	wmh = XGetWMHints(dpy, win);
+	wmh->flags &= ~(IconPixmapHint | IconMaskHint);
+	wmh->icon_pixmap = wmh->icon_mask = None;
+
+	if (nclients > 0 &&
+	    XGetWindowProperty(dpy, clients[sel]->win, wmatom[WMIcon], offset, LONG_MAX, False,
+			       XA_CARDINAL, &ret_type, &ret_format, &ret_nitems,
+			       &ret_nleft, &data) == Success &&
+	    ret_type == XA_CARDINAL && ret_format == 32)
+	{
+		XChangeProperty(dpy, win, wmatom[WMIcon], XA_CARDINAL, 32,
+		                PropModeReplace, data, ret_nitems);
+	} else if (nclients > 0 && (cwmh = XGetWMHints(dpy, clients[sel]->win)) && cwmh->flags & IconPixmapHint) {
+		XDeleteProperty(dpy, win, wmatom[WMIcon]);
+		wmh->flags |= IconPixmapHint;
+		wmh->icon_pixmap = cwmh->icon_pixmap;
+		if (cwmh->flags & IconMaskHint) {
+			wmh->flags |= IconMaskHint;
+			wmh->icon_mask = cwmh->icon_mask;
+		}
+		XFree(cwmh);
+	} else {
+		XDeleteProperty(dpy, win, wmatom[WMIcon]);
+	}
+	XSetWMHints(dpy, win, wmh);
+	XFree(wmh);
+	XFree(data);
 }
 
 void
