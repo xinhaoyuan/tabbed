@@ -49,7 +49,7 @@
 
 enum { ColFG, ColBG, ColLast };       /* color */
 enum { WMProtocols, WMDelete, WMName, WMState, WMFullscreen,
-       XEmbed, WMSelectTab, WMIcon, WMLast }; /* default atoms */
+       XEmbed, WMSelectTab, WMIcon, WMPid, WMLast }; /* default atoms */
 
 typedef union {
 	int i;
@@ -145,6 +145,8 @@ static void updatetitle(int c);
 static int xerror(Display *dpy, XErrorEvent *ee);
 static void xsettitle(Window w, const char *str);
 static void xseticon(void);
+static void xsetpid(void);
+static void xsetprop(void);
 
 /* variables */
 static int screen;
@@ -476,7 +478,7 @@ focus(int c)
 			n += snprintf(&buf[n], sizeof(buf) - n, " %s", cmd[i]);
 
 		xsettitle(win, buf);
-		xseticon();
+		xsetprop();
 		XRaiseWindow(dpy, win);
 
 		return;
@@ -937,7 +939,7 @@ propertynotify(const XEvent *e)
 		}
 		XFree(wmh);
 		if (c == sel)
-			xseticon();
+			xsetprop();
 	} else if (ev->atom == XA_WM_NORMAL_HINTS &&
 		   (c = getclient(ev->window)) > -1) {
 		updatesizehints(clients[c]);
@@ -945,8 +947,9 @@ propertynotify(const XEvent *e)
 	} else if (ev->state != PropertyDelete && ev->atom == XA_WM_NAME &&
 	           (c = getclient(ev->window)) > -1) {
 		updatetitle(c);
-	} else if (ev->atom == wmatom[WMIcon] && (c = getclient(ev->window)) > -1 && c == sel) {
-		xseticon();
+	} else if ((ev->atom == wmatom[WMIcon] || ev->atom == wmatom[WMPid]) &&
+		   (c = getclient(ev->window)) > -1 && c == sel) {
+		xsetprop();
 	}
 }
 
@@ -1123,6 +1126,7 @@ setup(void)
 	wmatom[WMState] = XInternAtom(dpy, "_NET_WM_STATE", False);
 	wmatom[XEmbed] = XInternAtom(dpy, "_XEMBED", False);
 	wmatom[WMIcon] = XInternAtom(dpy, "_NET_WM_ICON", False);
+	wmatom[WMPid] = XInternAtom(dpy, "_NET_WM_PID", False);
 
 	/* init appearance */
 	wx = 0;
@@ -1437,6 +1441,36 @@ xseticon(void)
 	XSetWMHints(dpy, win, wmh);
 	XFree(wmh);
 	XFree(data);
+}
+
+void
+xsetpid(void)
+{
+	Atom ret_type;
+	int ret_format;
+	unsigned long ret_nitems, ret_nleft;
+	long offset = 0L;
+	unsigned char *data = NULL;
+
+	if (nclients > 0 &&
+	    XGetWindowProperty(dpy, clients[sel]->win, wmatom[WMPid], offset, LONG_MAX, False,
+			       XA_CARDINAL, &ret_type, &ret_format, &ret_nitems,
+			       &ret_nleft, &data) == Success &&
+	    ret_type == XA_CARDINAL && ret_format == 32 && ret_nitems == 1 && ret_nleft == 0)
+	{
+		XChangeProperty(dpy, win, wmatom[WMPid], XA_CARDINAL, 32,
+		                PropModeReplace, data, ret_nitems);
+	} else {
+		XDeleteProperty(dpy, win, wmatom[WMPid]);
+	}
+	XFree(data);
+}
+
+void
+xsetprop(void)
+{
+	xseticon();
+	xsetpid();
 }
 
 void
