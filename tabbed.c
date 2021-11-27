@@ -172,7 +172,7 @@ static DC dc;
 static Atom wmatom[WMLast];
 static Window root, win, bgwin;
 static Client **clients;
-static int nclients, sel = -1, lastsel = -1;
+static int nclients = 0, sel = -1, lastsel = -1;
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static int cmd_append_pos;
 static char winid[64];
